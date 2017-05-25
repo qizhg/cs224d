@@ -44,7 +44,7 @@ class NERModel(LanguageModel):
       'data/ner/vocab.txt', 'data/ner/wordVectors.txt')
     tagnames = ['O', 'LOC', 'MISC', 'ORG', 'PER']
     self.num_to_tag = dict(enumerate(tagnames))
-    tag_to_num = {v:k for k,v in self.num_to_tag.iteritems()}
+    tag_to_num = {v:k for k,v in self.num_to_tag.items()}
 
     # Load the training set
     docs = du.load_dataset('data/ner/train')
@@ -92,7 +92,9 @@ class NERModel(LanguageModel):
     (Don't change the variable names)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    self.input_placeholder = tf.placeholder(tf.int32, shape=(None, self.config.window_size))
+    self.labels_placeholder = tf.placeholder(tf.float32, shape=(None, self.config.label_size))
+    self.dropout_placeholder = tf.placeholder(tf.float32)
     ### END YOUR CODE
 
   def create_feed_dict(self, input_batch, dropout, label_batch=None):
@@ -117,7 +119,18 @@ class NERModel(LanguageModel):
       feed_dict: The feed dictionary mapping from placeholders to values.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    if label_batch is None:
+    	feed_dict = {
+    	  self.input_placeholder : input_batch,
+          self.dropout_placeholder : dropout
+       }
+
+    else:
+    	feed_dict = {
+    	  self.input_placeholder : input_batch,
+          self.labels_placeholder : label_batch,
+          self.dropout_placeholder : dropout
+       }
     ### END YOUR CODE
     return feed_dict
 
@@ -148,7 +161,9 @@ class NERModel(LanguageModel):
     # The embedding lookup is currently only implemented for the CPU
     with tf.device('/cpu:0'):
       ### YOUR CODE HERE
-      raise NotImplementedError
+      self.L = tf.get_variable(name='Embedding', shape=(len(self.wv), self.config.embed_size))
+      embedding = tf.nn.embedding_lookup(self.L, tf.reshape(self.input_placeholder, [-1]))
+      window = tf.reshape(embedding, [-1, self.config.window_size * self.config.embed_size])
       ### END YOUR CODE
       return window
 
@@ -180,22 +195,33 @@ class NERModel(LanguageModel):
       output: tf.Tensor of shape (batch_size, label_size)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    with tf.variable_scope("Layer", initializer=xavier_weight_init()):
+    	self.W  = tf.get_variable("weight", shape=(self.config.window_size*self.config.embed_size, self.config.hidden_size))
+    	self.b1 = tf.get_variable("bias", shape=(self.config.hidden_size,))
+    with tf.variable_scope("Softmax", initializer=xavier_weight_init()):
+    	self.U  = tf.get_variable("weight", shape=(self.config.hidden_size, self.config.label_size))
+    	self.b2 = tf.get_variable("bias", shape=(self.config.label_size,))
+    	
+    h = tf.tanh(tf.matmul(window,self.W)+self.b1)
+    output = tf.nn.dropout(tf.matmul(h,self.U)+self.b2, self.dropout_placeholder) #logits
+
     ### END YOUR CODE
     return output 
 
-  def add_loss_op(self, y):
+  def add_loss_op(self, logit):
     """Adds cross_entropy_loss ops to the computational graph.
 
     Hint: You can use tf.nn.softmax_cross_entropy_with_logits to simplify your
           implementation. You might find tf.reduce_mean useful.
     Args:
-      pred: A tensor of shape (batch_size, n_classes)
+      logit: A tensor of shape (batch_size, n_classes)
     Returns:
       loss: A 0-d tensor (scalar)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    loss = tf.nn.softmax_cross_entropy_with_logits(labels=self.labels_placeholder, logits=logit)
+    if self.config.l2:
+    	loss = loss + 0.5*self.config.l2*(tf.nn.l2_loss(self.W)+tf.nn.l2_loss(self.U))
     ### END YOUR CODE
     return loss
 
@@ -219,7 +245,8 @@ class NERModel(LanguageModel):
       train_op: The Op for training.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    optimizer = tf.train.AdamOptimizer(learning_rate = self.config.lr)
+    train_op = optimizer.minimize(loss)
     ### END YOUR CODE
     return train_op
 
@@ -300,17 +327,17 @@ def print_confusion(confusion, num_to_tag):
     total_guessed_tags = confusion.sum(axis=0)
     # Summing left to right gets the total number of true tags
     total_true_tags = confusion.sum(axis=1)
-    print
-    print confusion
+    print('')
+    print(confusion)
     for i, tag in sorted(num_to_tag.items()):
         prec = confusion[i, i] / float(total_guessed_tags[i])
         recall = confusion[i, i] / float(total_true_tags[i])
-        print 'Tag: {} - P {:2.4f} / R {:2.4f}'.format(tag, prec, recall)
+        print('Tag: {} - P {:2.4f} / R {:2.4f}'.format(tag, prec, recall))
 
 def calculate_confusion(config, predicted_indices, y_indices):
     """Helper method that calculates confusion matrix."""
     confusion = np.zeros((config.label_size, config.label_size), dtype=np.int32)
-    for i in xrange(len(y_indices)):
+    for i in range(len(y_indices)):
         correct_label = y_indices[i]
         guessed_label = predicted_indices[i]
         confusion[correct_label, guessed_label] += 1
@@ -318,7 +345,7 @@ def calculate_confusion(config, predicted_indices, y_indices):
 
 def save_predictions(predictions, filename):
   """Saves predictions to provided file."""
-  with open(filename, "wb") as f:
+  with open(filename, "w") as f:
     for prediction in predictions:
       f.write(str(prediction) + "\n")
 
@@ -341,16 +368,16 @@ def test_NER():
       best_val_epoch = 0
 
       session.run(init)
-      for epoch in xrange(config.max_epochs):
-        print 'Epoch {}'.format(epoch)
+      for epoch in range(config.max_epochs):
+        print('Epoch {}'.format(epoch))
         start = time.time()
         ###
         train_loss, train_acc = model.run_epoch(session, model.X_train,
                                                 model.y_train)
         val_loss, predictions = model.predict(session, model.X_dev, model.y_dev)
-        print 'Training loss: {}'.format(train_loss)
-        print 'Training acc: {}'.format(train_acc)
-        print 'Validation loss: {}'.format(val_loss)
+        print ('Training loss: {}'.format(train_loss))
+        print ('Training acc: {}'.format(train_acc))
+        print ('Validation loss: {}'.format(val_loss))
         if val_loss < best_val_loss:
           best_val_loss = val_loss
           best_val_epoch = epoch
@@ -363,12 +390,12 @@ def test_NER():
         ###
         confusion = calculate_confusion(config, predictions, model.y_dev)
         print_confusion(confusion, model.num_to_tag)
-        print 'Total time: {}'.format(time.time() - start)
+        print ('Total time: {}'.format(time.time() - start))
       
       saver.restore(session, './weights/ner.weights')
-      print 'Test'
-      print '=-=-='
-      print 'Writing predictions to q2_test.predicted'
+      print ('Test')
+      print ('=-=-=')
+      print ('Writing predictions to q2_test.predicted')
       _, predictions = model.predict(session, model.X_test, model.y_test)
       save_predictions(predictions, "q2_test.predicted")
 

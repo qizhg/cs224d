@@ -8,7 +8,7 @@ import pandas as pd
 
 
 def invert_dict(d):
-    return {v:k for k,v in d.iteritems()}
+    return {v:k for k,v in d.items()}
 
 def flatten1(lst):
     return list(itertools.chain.from_iterable(lst))
@@ -81,7 +81,7 @@ def extract_word_set(docs):
     return words
 
 def pad_sequence(seq, left=1, right=1):
-    return left*[("<s>", "")] + seq + right*[("</s>", "")]
+    return int(left)*[("<s>", "")] + seq + int(right)*[("</s>", "")]
 
 ##
 # For window models
@@ -94,7 +94,7 @@ def seq_to_windows(words, tags, word_to_num, tag_to_num, left=1, right=1):
             continue # skip sentence delimiters
         tagn = tag_to_num[tags[i]]
         idxs = [word_to_num[words[ii]]
-                for ii in range(i - left, i + right + 1)]
+                for ii in range(i - int(left), i + int(right) + 1)]
         X.append(idxs)
         y.append(tagn)
     return array(X), array(y)
